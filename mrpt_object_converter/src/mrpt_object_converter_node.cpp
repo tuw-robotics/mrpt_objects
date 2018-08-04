@@ -1,7 +1,7 @@
 #include <mrpt_object_converter_node.h>
 #include <mrpt_bridge/map.h>
 #include <mrpt_bridge/pose.h>
-#include <mrpt_bridge/bearing.h>
+#include <mrpt_bridge/landmark.h>
 #include <mrpt/maps/CBearing.h>
 #include <mrpt/maps/CBearingMap.h>
 #include <mrpt/maps/CMultiMetricMap.h>
