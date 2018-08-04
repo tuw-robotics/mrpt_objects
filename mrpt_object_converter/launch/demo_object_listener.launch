@@ -1,0 +1,9 @@
+<launch>
+
+  <node pkg="mrpt_object_converter" type="mrpt_object_converter_node" name="mrpt_object_converter_node" output="screen">
+    <param name="base_frame_id" value="map"/>
+    <param name="frame_id" value="map"/>
+    <param name="debug" type="bool" value="true"/>
+  </node>
+
+</launch>
