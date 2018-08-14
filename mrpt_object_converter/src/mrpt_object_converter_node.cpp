@@ -29,8 +29,12 @@ ObjectConverterNode::ParametersNode::ParametersNode() : nh("~")
     nh.param<std::string>(std::string("base_frame_id"), base_frame_id, "base_link");
     nh.param<std::string>(std::string("tf_prefix"), tf_prefix, "");
     nh.param<bool>("debug", debug, false);
+    nh.param<std::string>(std::string("subscriber_topic_name"), subscriber_topic_name, std::string("map_doors"));
+    nh.param<std::string>(std::string("publisher_topic_name"), publisher_topic_name, std::string("bearing_gt"));
     ROS_INFO("tf_prefix: %s", tf_prefix.c_str());
     ROS_INFO("base_frame_id: %s", base_frame_id.c_str());
+    ROS_INFO("publisher topic name: %s", publisher_topic_name.c_str());
+    ROS_INFO("subscribed to: %s", subscriber_topic_name.c_str());
 }
 
 ObjectConverterNode::ObjectConverterNode(ros::NodeHandle& n) : n_(n)
@@ -50,9 +54,11 @@ ObjectConverterNode::ParametersNode* ObjectConverterNode::param()
 
 void ObjectConverterNode::init()
 {
-  sub_object_detections_ = n_.subscribe("map_doors", 1, &ObjectConverterNode::callbackObjectDetections, this);
 
-  pub_bearings_ = n_.advertise<mrpt_msgs::ObservationRangeBearing>("bearings", 1, true);
+  sub_object_detections_ = n_.subscribe(param()->subscriber_topic_name, 1, &ObjectConverterNode::callbackObjectDetections, this);
+
+  pub_bearings_ = n_.advertise<mrpt_msgs::ObservationRangeBearing>(param()->publisher_topic_name, 1, true);
+
 }
 
 void ObjectConverterNode::callbackObjectDetections(const tuw_object_msgs::ObjectDetection &_msg)
@@ -90,6 +96,8 @@ void ObjectConverterNode::callbackObjectDetections(const tuw_object_msgs::Object
     }
   }
   mrpt_msgs::ObservationRangeBearing obs_msg;
+  obs_msg.header.stamp = _msg.header.stamp;
+  obs_msg.header.frame_id = _msg.header.frame_id;
   mrpt_bridge::convert(obs, obs_msg);
   pub_bearings_.publish(obs_msg);
 }
@@ -147,11 +155,10 @@ int main(int argc, char **argv)
 
   ObjectConverterNode obj_listener_node(nh);
   obj_listener_node.init();
-  ros::Rate rate(2);
+  //ros::Rate rate(2);
 
   while (ros::ok())
   {
-    ros::spinOnce();
-    rate.sleep();
+    ros::spin();
   }
 }

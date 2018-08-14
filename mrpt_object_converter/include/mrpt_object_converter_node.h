@@ -32,6 +32,8 @@ class ObjectConverterNode
         bool debug;
         std::string tf_prefix;
         std::string base_frame_id;
+        std::string publisher_topic_name;
+        std::string subscriber_topic_name;
     };
 
 
