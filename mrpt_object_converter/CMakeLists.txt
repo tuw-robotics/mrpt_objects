@@ -158,6 +158,7 @@ add_executable(mrpt_object_converter_node src/mrpt_object_converter_node.cpp)
 target_link_libraries(mrpt_object_converter_node
   ${MRPT_LIBS}
   ${catkin_LIBRARIES}
+  ${OpenCV_LIBRARIES}
 )
 
 

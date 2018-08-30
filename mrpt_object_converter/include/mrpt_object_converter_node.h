@@ -45,11 +45,13 @@ class ObjectConverterNode
     ParametersNode *param();
     void init();
     void callbackObjectDetections(const tuw_object_msgs::ObjectDetection &_msg);
-    void callbackScan(const sensor_msgs::LaserScan &_msg);
+    void callbackScan(const sensor_msgs::LaserScan &_laser_msg);
     bool getStaticTF(std::string source_frame, mrpt::poses::CPose3D &des);
 
   private:
-
+ int x_range;
+ int y_range;
+ float scale_factor = 100.0;
     ros::NodeHandle n_;
     ros::Subscriber sub_object_detections_;
     ros::Subscriber sub_scan_;

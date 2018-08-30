@@ -24,6 +24,7 @@
 #include <mrpt/opengl/CSphere.h>
 #include <mrpt/opengl/stock_objects.h>
 #include <opencv2/imgproc.hpp>
+#include <opencv2/highgui.hpp>
 
 ObjectConverterNode::ParametersNode::ParametersNode() : nh("~")
 {
@@ -56,6 +57,10 @@ ObjectConverterNode::ParametersNode* ObjectConverterNode::param()
 
 void ObjectConverterNode::init()
 {
+  auto id_mat = mrpt::math::CMatrixDouble44();
+  id_mat.setIdentity();
+  map_pose_ = mrpt::poses::CPose3D(id_mat);
+
   sub_object_detections_ = n_.subscribe(param()->subscriber_topic_name, 1, &ObjectConverterNode::callbackObjectDetections, this);
 
   if (param()->contour_filtering)
@@ -66,23 +71,30 @@ void ObjectConverterNode::init()
   pub_bearings_ = n_.advertise<mrpt_msgs::ObservationRangeBearing>(param()->publisher_topic_name, 1, true);
 }
 
-void ObjectConverterNode::callbackScan(const sensor_msgs::LaserScan &_msg)
+void ObjectConverterNode::callbackScan(const sensor_msgs::LaserScan &_laser_msg)
 {
-  float offset_factor = 0.75;
-  size_t nr =  _msg.ranges.size();
+  float offset_factor = 0;
+  size_t nr =  _laser_msg.ranges.size();
   contour_.resize(nr+1);
   size_t i;
   unsigned int contour_cnt;
+  //float min_x, min_y, max_x, max_y;
+  //min_x = min_y = std::numeric_limits<float>::max();
+  //max_x = max_y = -std::numeric_limits<float>::max();
   for ( i = 0, contour_cnt = 0; i < nr; i++ ) {
-        double length = _msg.ranges[i];
+        double length = _laser_msg.ranges[i];
 
-        if ( ( length < _msg.range_max ) && isfinite ( length ) ) {
-            double angle  = _msg.angle_min + ( _msg.angle_increment * i );
+        if ( ( length < _laser_msg.range_max ) && isfinite ( length ) ) {
+            double angle  = _laser_msg.angle_min + ( _laser_msg.angle_increment * i );
             cv::Point2f p;
             p.x = cos ( angle ) * length + offset_factor;
             p.y = sin ( angle ) * length + offset_factor;
             contour_[contour_cnt] = p;
             contour_cnt++;
+            //min_x = std::min(p.x,min_x);
+            //max_x = std::max(p.x,max_x);
+            //min_y = std::min(p.y,min_y);
+            //max_y = std::max(p.y,max_y);
         }
 
   }
@@ -92,10 +104,23 @@ void ObjectConverterNode::callbackScan(const sensor_msgs::LaserScan &_msg)
   {
       contour_.resize(contour_cnt);
   }
+  //x_range = static_cast<int>(std::ceil((max_x - min_x) * scale_factor));
+  //y_range = static_cast<int>(std::ceil((max_y - min_y) * scale_factor));
+
+  std::vector<cv::Point2f> hull;
+  cv::convexHull(contour_, hull, false);
+  contour_ = hull;
 }
 
 void ObjectConverterNode::callbackObjectDetections(const tuw_object_msgs::ObjectDetection &_msg)
 {
+  //cv::Mat img = cv::Mat::zeros(x_range,y_range,CV_8UC3);
+  //for (std::vector<cv::Point2f>::iterator p=contour_.begin(); p < contour_.end()-1; ++p)
+  //{
+  //  cv::line(img, *p * scale_factor, *(p+1) * scale_factor, cv::Scalar(255,255,255),2);
+  //}
+  //cv::line(img, contour_[contour_.size()-1] * scale_factor,contour_[0] * scale_factor, cv::Scalar(255,255,255),2);
+
   using namespace mrpt::obs;
   using namespace mrpt::maps;
   using namespace mrpt::containers;
@@ -137,10 +162,12 @@ void ObjectConverterNode::callbackObjectDetections(const tuw_object_msgs::Object
         d.yaw = atan2(dy, dx);
         d.range = pose.distance3DTo(map_pose_.x(), map_pose_.y(), pose.z());
 
+        double offset = 0.25;
+        //cv::circle(img, cv::Point2f(dy,dx) * scale_factor, 2, cv::Scalar(255,0,0));
         //printf("(%lf,%lf)\n", dx,dy);
         if (param()->contour_filtering)
         {
-            if(cv::pointPolygonTest(contour_,cv::Point2f(dx,dy),false) >= 0)
+            if(cv::pointPolygonTest(contour_,cv::Point2f(dy < 0 ? dy-offset : dy+offset,dx < 0 ? dx-offset : dx+offset),false) >= 0)
             {
                 //Filter by means of laser scan
                 obs.sensedData.push_back(d);
@@ -161,6 +188,9 @@ void ObjectConverterNode::callbackObjectDetections(const tuw_object_msgs::Object
         mrpt_bridge::convert(obs, obs_msg);
         pub_bearings_.publish(obs_msg);
   }
+
+  //cv::imshow("LaserScanPoly", img);
+  //cv::waitKey(2);
   ROS_INFO("published beariings: %d\n", obs.sensedData.size());
 }
 
