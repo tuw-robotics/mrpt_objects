@@ -5,7 +5,7 @@ add_compile_options(-std=c++14) ## for c++ 2014
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
 ## is used, also find other catkin packages
 
-add_compile_options(-march=native)
+#add_compile_options(-march=native)
 
 find_package(catkin REQUIRED COMPONENTS
   roscpp
@@ -15,6 +15,7 @@ find_package(catkin REQUIRED COMPONENTS
   tuw_object_msgs
 )
 
+find_package(OpenCV REQUIRED)
 find_package(MRPT 1.5 REQUIRED gui obs slam)
 message(STATUS "MRPT_VERSION: ${MRPT_VERSION}")
 
@@ -29,7 +30,7 @@ if (CMAKE_COMPILER_IS_GNUCXX)
 	endif()
 endif()
 IF(CMAKE_COMPILER_IS_GNUCXX AND NOT CMAKE_BUILD_TYPE MATCHES "Debug")
-  add_compile_options(-O3)
+  #add_compile_options(-O3)
 ENDIF()
 
 
@@ -126,6 +127,7 @@ ENDIF()
 catkin_package(
   INCLUDE_DIRS include
   CATKIN_DEPENDS roscpp tf mrpt_bridge mrpt_msgs tuw_object_msgs
+  DEPENDS OpenCV
 #  DEPENDS system_lib
 )
 

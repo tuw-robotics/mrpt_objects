@@ -23,6 +23,7 @@
 #include <mrpt/opengl/CGridPlaneXY.h>
 #include <mrpt/opengl/CSphere.h>
 #include <mrpt/opengl/stock_objects.h>
+#include <opencv2/imgproc.hpp>
 
 ObjectConverterNode::ParametersNode::ParametersNode() : nh("~")
 {
@@ -31,6 +32,7 @@ ObjectConverterNode::ParametersNode::ParametersNode() : nh("~")
     nh.param<bool>("debug", debug, false);
     nh.param<std::string>(std::string("subscriber_topic_name"), subscriber_topic_name, std::string("map_doors"));
     nh.param<std::string>(std::string("publisher_topic_name"), publisher_topic_name, std::string("bearing_gt"));
+    nh.param<bool>("contour_filtering", contour_filtering, false);
     ROS_INFO("tf_prefix: %s", tf_prefix.c_str());
     ROS_INFO("base_frame_id: %s", base_frame_id.c_str());
     ROS_INFO("publisher topic name: %s", publisher_topic_name.c_str());
@@ -54,11 +56,42 @@ ObjectConverterNode::ParametersNode* ObjectConverterNode::param()
 
 void ObjectConverterNode::init()
 {
-
   sub_object_detections_ = n_.subscribe(param()->subscriber_topic_name, 1, &ObjectConverterNode::callbackObjectDetections, this);
 
-  pub_bearings_ = n_.advertise<mrpt_msgs::ObservationRangeBearing>(param()->publisher_topic_name, 1, true);
+  if (param()->contour_filtering)
+  {
+    sub_scan_ = n_.subscribe("scan", 1, &ObjectConverterNode::callbackScan,this);
+  }
 
+  pub_bearings_ = n_.advertise<mrpt_msgs::ObservationRangeBearing>(param()->publisher_topic_name, 1, true);
+}
+
+void ObjectConverterNode::callbackScan(const sensor_msgs::LaserScan &_msg)
+{
+  float offset_factor = 0.75;
+  size_t nr =  _msg.ranges.size();
+  contour_.resize(nr+1);
+  size_t i;
+  unsigned int contour_cnt;
+  for ( i = 0, contour_cnt = 0; i < nr; i++ ) {
+        double length = _msg.ranges[i];
+
+        if ( ( length < _msg.range_max ) && isfinite ( length ) ) {
+            double angle  = _msg.angle_min + ( _msg.angle_increment * i );
+            cv::Point2f p;
+            p.x = cos ( angle ) * length + offset_factor;
+            p.y = sin ( angle ) * length + offset_factor;
+            contour_[contour_cnt] = p;
+            contour_cnt++;
+        }
+
+  }
+  contour_[contour_cnt] = cv::Point2f(0,0);
+  contour_cnt++;
+  if (contour_cnt < contour_.size())
+  {
+      contour_.resize(contour_cnt);
+  }
 }
 
 void ObjectConverterNode::callbackObjectDetections(const tuw_object_msgs::ObjectDetection &_msg)
@@ -68,9 +101,21 @@ void ObjectConverterNode::callbackObjectDetections(const tuw_object_msgs::Object
   using namespace mrpt::containers;
   using namespace mrpt::poses;
 
+  if (param()->contour_filtering && !contour_.size())
+  {
+    return;
+  }
+
   CObservationBearingRange obs;
   obs.setSensorPose(map_pose_);
   obs.fieldOfView_pitch = M_PI/180.0 * 270.0;
+
+  //std::cout << "=====CONTOUR=====" << std::endl;
+  //for (const auto &p : contour_)
+  //{
+  //    std::cout << p << std::endl;
+  //}
+  //std::cout << "=====CONTOUR=====" << std::endl;
 
   for (std::vector<tuw_object_msgs::ObjectWithCovariance>::const_iterator it = _msg.objects.begin();
        it != _msg.objects.end(); ++it)
@@ -91,15 +136,32 @@ void ObjectConverterNode::callbackObjectDetections(const tuw_object_msgs::Object
         double dy = pose.y() - map_pose_.y();
         d.yaw = atan2(dy, dx);
         d.range = pose.distance3DTo(map_pose_.x(), map_pose_.y(), pose.z());
+
+        //printf("(%lf,%lf)\n", dx,dy);
+        if (param()->contour_filtering)
+        {
+            if(cv::pointPolygonTest(contour_,cv::Point2f(dx,dy),false) >= 0)
+            {
+                //Filter by means of laser scan
+                obs.sensedData.push_back(d);
+            }
+        }
+        else
+        {
+            obs.sensedData.push_back(d);
+        }
       }
-      obs.sensedData.push_back(d);
     }
   }
-  mrpt_msgs::ObservationRangeBearing obs_msg;
-  obs_msg.header.stamp = _msg.header.stamp;
-  obs_msg.header.frame_id = _msg.header.frame_id;
-  mrpt_bridge::convert(obs, obs_msg);
-  pub_bearings_.publish(obs_msg);
+  if (obs.sensedData.size() > 0)
+  {
+        mrpt_msgs::ObservationRangeBearing obs_msg;
+        obs_msg.header.stamp = _msg.header.stamp;
+        obs_msg.header.frame_id = _msg.header.frame_id;
+        mrpt_bridge::convert(obs, obs_msg);
+        pub_bearings_.publish(obs_msg);
+  }
+  ROS_INFO("published beariings: %d\n", obs.sensedData.size());
 }
 
 bool ObjectConverterNode::getStaticTF(std::string source_frame, mrpt::poses::CPose3D &des)

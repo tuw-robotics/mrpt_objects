@@ -15,7 +15,8 @@
 #include <mrpt/poses/CPose3D.h>
 #include <mrpt/containers/deepcopy_poly_ptr.h>
 #include <mrpt_msgs/ObservationRangeBearing.h>
-
+#include <sensor_msgs/LaserScan.h>
+#include <opencv2/core.hpp>
 /**
  * This class listens to objectdetections and inserts them into mrpt maps.
  * Furthermore, it also listens to nav_msgs::OccupancyGridMap messages and converts those maps to mrpt maps
@@ -30,6 +31,7 @@ class ObjectConverterNode
         ParametersNode();
         ros::NodeHandle nh;
         bool debug;
+        bool contour_filtering;
         std::string tf_prefix;
         std::string base_frame_id;
         std::string publisher_topic_name;
@@ -43,13 +45,16 @@ class ObjectConverterNode
     ParametersNode *param();
     void init();
     void callbackObjectDetections(const tuw_object_msgs::ObjectDetection &_msg);
+    void callbackScan(const sensor_msgs::LaserScan &_msg);
     bool getStaticTF(std::string source_frame, mrpt::poses::CPose3D &des);
 
   private:
 
     ros::NodeHandle n_;
     ros::Subscriber sub_object_detections_;
+    ros::Subscriber sub_scan_;
     ros::Publisher pub_bearings_;
+    std::vector<cv::Point2f> contour_ = {};
     ParametersNode* params_;
     tf::TransformListener listenerTF_;
     mrpt::poses::CPose3D map_pose_;
