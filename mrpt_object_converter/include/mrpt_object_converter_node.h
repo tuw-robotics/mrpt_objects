@@ -61,6 +61,7 @@ class ObjectConverterNode
     tf::TransformListener listenerTF_;
     mrpt::poses::CPose3D map_pose_;
     std::map<std::string, mrpt::poses::CPose3D> static_tf_;
+    bool already_printed_=false;
 };
 
 #endif // OBJECT_LISTENER_NODE_H

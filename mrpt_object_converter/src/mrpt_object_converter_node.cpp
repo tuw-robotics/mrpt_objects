@@ -7,6 +7,7 @@
 #include <mrpt/maps/CMultiMetricMap.h>
 #include <mrpt/maps/CSimpleMap.h>
 #include <mrpt/system/filesystem.h>
+#include <mrpt/math/CQuaternion.h>
 
 #include <mrpt/io/CFileOutputStream.h>
 #include <mrpt/io/CFileInputStream.h>
@@ -65,7 +66,7 @@ void ObjectConverterNode::init()
 
   if (param()->contour_filtering)
   {
-    sub_scan_ = n_.subscribe("scan", 1, &ObjectConverterNode::callbackScan,this);
+    sub_scan_ = n_.subscribe("scan", 1, &ObjectConverterNode::callbackScan, this);
   }
 
   pub_bearings_ = n_.advertise<mrpt_msgs::ObservationRangeBearing>(param()->publisher_topic_name, 1, true);
@@ -148,26 +149,55 @@ void ObjectConverterNode::callbackObjectDetections(const tuw_object_msgs::Object
     if (it->object.shape == tuw_object_msgs::Object::SHAPE_DOOR)
     {
       const auto o_id = it->object.ids[0];
-      CBearing::Ptr bear;
+      auto position = it->object.pose.position;
+      auto orientation = it->object.pose.orientation;
 
-      CPose3D pose;
-      mrpt_bridge::convert(it->object.pose, pose);
+      CBearing::Ptr bear;
+      //Eigen::Quaterniond q_it(orientation.w,orientation.x,orientation.y,orientation.z);
+      //mrpt::math::CMatrixDouble44 m_it;
+      //m_it.block<3,3>(0,0) = q_it.toRotationMatrix();
+      //m_it.block<3,1>(0,3) = Eigen::Matrix<double,3,1>(position.x,position.y,position.z);
+      //m_it.block<1,4>(3,0) = Eigen::Matrix<double,1,4>(0,0,0,1);
+
+      //CPose3D pose(m_it);
+
+      //if (!already_printed_)
+      //{
+      //  std::cout << "pose " << o_id << " " << pose << std::endl;
+      //}
+
+      //double door_angle = it->object.shape_variables[3];
+      //bool clockwise = ((int) it->object.shape_variables[5] == 0) ? true : false;
+      //{
+      //  double c = 0, s = 0;
+      //  if (clockwise)
+      //  {
+      //    c = cos(-door_angle);
+      //    s = sin(-door_angle);
+      //  } else {
+      //    c = cos(door_angle);
+      //    s = sin(door_angle);
+      //  }
+      //  std::vector<double> mat_data = {c,-s,0,s,c,0,0,0,1};
+      //  mrpt::math::CMatrixDouble33 R_d(std::move(mat_data.data()));
+      //  pose.setRotationMatrix(pose.getRotationMatrix() * R_d);
+      //}
 
       CObservationBearingRange::TMeasurement d;
       {
         d.landmarkID = o_id;
         d.pitch = 0;
-        double dx = pose.x() - map_pose_.x();
-        double dy = pose.y() - map_pose_.y();
-        d.yaw = atan2(dy, dx);
-        d.range = pose.distance3DTo(map_pose_.x(), map_pose_.y(), pose.z());
+        double dx = position.x - map_pose_.x();
+        double dy = position.y - map_pose_.y();
+        d.yaw = atan2(dy,dx);
+        d.range = sqrt(dx*dx + dy*dy);
 
         double offset = 0.25;
         //cv::circle(img, cv::Point2f(dy,dx) * scale_factor, 2, cv::Scalar(255,0,0));
         //printf("(%lf,%lf)\n", dx,dy);
         if (param()->contour_filtering)
         {
-            if(cv::pointPolygonTest(contour_,cv::Point2f(dy < 0 ? dy-offset : dy+offset,dx < 0 ? dx-offset : dx+offset),false) >= 0)
+            if(cv::pointPolygonTest(contour_,cv::Point2f(dy < 0 ? dy+offset : dy-offset,dx < 0 ? dx+offset : dx-offset),false) >= 0)
             {
                 //Filter by means of laser scan
                 obs.sensedData.push_back(d);
@@ -180,6 +210,7 @@ void ObjectConverterNode::callbackObjectDetections(const tuw_object_msgs::Object
       }
     }
   }
+
   if (obs.sensedData.size() > 0)
   {
         mrpt_msgs::ObservationRangeBearing obs_msg;
@@ -191,7 +222,8 @@ void ObjectConverterNode::callbackObjectDetections(const tuw_object_msgs::Object
 
   //cv::imshow("LaserScanPoly", img);
   //cv::waitKey(2);
-  ROS_INFO("published beariings: %d\n", obs.sensedData.size());
+  ROS_INFO("published bearings: %d\n", obs.sensedData.size());
+  already_printed_ = true;
 }
 
 bool ObjectConverterNode::getStaticTF(std::string source_frame, mrpt::poses::CPose3D &des)
