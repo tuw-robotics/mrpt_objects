@@ -166,7 +166,7 @@ void ObjectConverterNode::callbackObjectDetections(const tuw_object_msgs::Object
       //  std::cout << "pose " << o_id << " " << pose << std::endl;
       //}
 
-      //double door_angle = it->object.shape_variables[3];
+      double door_angle = it->object.shape_variables[3];
       //bool clockwise = ((int) it->object.shape_variables[5] == 0) ? true : false;
       //{
       //  double c = 0, s = 0;
@@ -186,10 +186,10 @@ void ObjectConverterNode::callbackObjectDetections(const tuw_object_msgs::Object
       CObservationBearingRange::TMeasurement d;
       {
         d.landmarkID = o_id;
-        d.pitch = 0;
         double dx = position.x - map_pose_.x();
         double dy = position.y - map_pose_.y();
         d.yaw = atan2(dy,dx);
+        d.pitch = door_angle;
         d.range = sqrt(dx*dx + dy*dy);
 
         double offset = 0.25;
