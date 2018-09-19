@@ -32,8 +32,10 @@ class ObjectConverterNode
         ros::NodeHandle nh;
         bool debug;
         bool contour_filtering;
+        bool robot_perspective;
         std::string tf_prefix;
         std::string base_frame_id;
+        std::string source_frame_id;
         std::string publisher_topic_name;
         std::string subscriber_topic_name;
     };

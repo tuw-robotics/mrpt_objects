@@ -30,11 +30,13 @@
 ObjectConverterNode::ParametersNode::ParametersNode() : nh("~")
 {
     nh.param<std::string>(std::string("base_frame_id"), base_frame_id, "base_link");
+    nh.param<std::string>(std::string("source_frame_id"), source_frame_id, "r0/laser0");
     nh.param<std::string>(std::string("tf_prefix"), tf_prefix, "");
     nh.param<bool>("debug", debug, false);
     nh.param<std::string>(std::string("subscriber_topic_name"), subscriber_topic_name, std::string("map_doors"));
     nh.param<std::string>(std::string("publisher_topic_name"), publisher_topic_name, std::string("bearing_gt"));
     nh.param<bool>("contour_filtering", contour_filtering, false);
+    nh.param<bool>("robot_perspective", robot_perspective, false);
     ROS_INFO("tf_prefix: %s", tf_prefix.c_str());
     ROS_INFO("base_frame_id: %s", base_frame_id.c_str());
     ROS_INFO("publisher topic name: %s", publisher_topic_name.c_str());
@@ -131,6 +133,11 @@ void ObjectConverterNode::callbackObjectDetections(const tuw_object_msgs::Object
   {
     return;
   }
+
+  //if (param()->robot_perspective)
+  //{
+  //  getStaticTF(param()->source_frame_id, map_pose_);
+  //}
 
   CObservationBearingRange obs;
   obs.setSensorPose(map_pose_);
