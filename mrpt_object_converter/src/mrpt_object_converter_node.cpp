@@ -173,7 +173,7 @@ void ObjectConverterNode::callbackObjectDetections(const tuw_object_msgs::Object
       //  std::cout << "pose " << o_id << " " << pose << std::endl;
       //}
 
-      double door_angle = it->object.shape_variables[3];
+      double door_angle = ((int) it->object.shape_variables[5] == 0) ? -it->object.shape_variables[3] : it->object.shape_variables[3];
       //bool clockwise = ((int) it->object.shape_variables[5] == 0) ? true : false;
       //{
       //  double c = 0, s = 0;
