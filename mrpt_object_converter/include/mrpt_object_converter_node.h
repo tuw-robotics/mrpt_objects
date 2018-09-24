@@ -33,6 +33,7 @@ class ObjectConverterNode
         bool debug;
         bool contour_filtering;
         bool robot_perspective;
+        float contour_offset;
         std::string tf_prefix;
         std::string base_frame_id;
         std::string source_frame_id;
@@ -54,6 +55,7 @@ class ObjectConverterNode
  int x_range;
  int y_range;
  float scale_factor = 100.0;
+ int add_factor = 500.0;
     ros::NodeHandle n_;
     ros::Subscriber sub_object_detections_;
     ros::Subscriber sub_scan_;
