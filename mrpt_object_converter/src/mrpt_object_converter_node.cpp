@@ -1,30 +1,7 @@
 #include <mrpt_object_converter_node.h>
-#include <mrpt_bridge/map.h>
 #include <mrpt_bridge/pose.h>
 #include <mrpt_bridge/landmark.h>
-#include <mrpt/maps/CBearing.h>
-#include <mrpt/maps/CBearingMap.h>
-#include <mrpt/maps/CMultiMetricMap.h>
-#include <mrpt/maps/CSimpleMap.h>
-#include <mrpt/system/filesystem.h>
-#include <mrpt/math/CQuaternion.h>
-
-#include <mrpt/io/CFileOutputStream.h>
-#include <mrpt/io/CFileInputStream.h>
-
 #include <string>
-
-#include <mrpt/obs/CObservationBearingRange.h>
-#include <mrpt/math/types_math.h>
-
-#include <mrpt/config/CConfigFile.h>
-
-#include <mrpt/opengl/COpenGLScene.h>
-#include <mrpt/opengl/CSetOfLines.h>
-#include <mrpt/opengl/CGridPlaneXY.h>
-#include <mrpt/opengl/CSphere.h>
-#include <mrpt/opengl/stock_objects.h>
-
 #include <opencv2/imgproc.hpp>
 #include <opencv2/highgui.hpp>
 
@@ -73,7 +50,7 @@ void ObjectConverterNode::init()
     sub_scan_ = n_.subscribe("scan", 1, &ObjectConverterNode::callbackScan, this);
   }
 
-  pub_bearings_ = n_.advertise<mrpt_msgs::ObservationRangeBearing>(param()->publisher_topic_name, 1, true);
+  pub_bearings_ = n_.advertise<mrpt_msgs::ObservationObject>(param()->publisher_topic_name, 1, true);
 }
 
 void ObjectConverterNode::callbackScan(const sensor_msgs::LaserScan &_laser_msg)
@@ -82,6 +59,7 @@ void ObjectConverterNode::callbackScan(const sensor_msgs::LaserScan &_laser_msg)
   contour_.resize(nr+1);
   size_t i;
   unsigned int contour_cnt;
+  
   for ( i = 0, contour_cnt = 0; i < nr; i++ ) {
         double length = _laser_msg.ranges[i];
 
@@ -105,11 +83,67 @@ void ObjectConverterNode::callbackScan(const sensor_msgs::LaserScan &_laser_msg)
   contour_ = hull;
 }
 
+bool ObjectConverterNode::convert(const tuw_object_msgs::ObjectWithCovariance &_obj, mrpt::obs::CObservationObject::TMeasurement &_meas)
+{
+  const auto o_id = _obj.object.ids[0];
+  auto position = _obj.object.pose.position;
+  auto orientation = _obj.object.pose.orientation;
+
+  _meas.landmarkID = o_id;
+  double dx = position.x - map_pose_.x();
+  double dy = position.y - map_pose_.y();
+  _meas.yaw = atan2(dy,dx);
+  
+  double dx_inv = map_pose_.x() - position.x;
+  double dy_inv = map_pose_.y() - position.y;
+  _meas.pitch = atan2(dy_inv,dx_inv);
+
+  _meas.range = sqrt(dx*dx + dy*dy);
+
+  cv::Vec2f offset = cv::Vec2f(dx,dy) * scale_factor;
+  offset[0] *= param()->contour_offset;
+  offset[1] *= param()->contour_offset;
+  offset = -offset;
+
+  float dx_offset = dx * scale_factor + offset[0] + add_factor;
+  float dy_offset = dy * scale_factor + offset[1] + add_factor;
+  
+  mrpt::poses::CPose3D p_so;
+  mrpt_bridge::convert(_obj.object.pose, p_so);
+  _meas.pose_so = p_so;
+  
+  MRPT_TODO("Pose in world frame");
+  
+  const auto shape_vars = _obj.object.shape_variables;
+  _meas.shape_variables.resize(shape_vars.size());
+  unsigned int cnt = 0;
+  for (const double sv : shape_vars)
+  {
+    _meas.shape_variables[cnt++] = sv;
+  }
+  
+  if (param()->contour_filtering)
+  {
+      cv::Point2f cv_d;
+      cv_d.x = dx_offset;
+      cv_d.y = dy_offset;
+
+      if(cv::pointPolygonTest(contour_,cv_d,false) >= 0)
+      {
+        return true;
+      }
+  }
+  else
+  {
+      return true;
+  }
+  
+  return false;
+}
+
 void ObjectConverterNode::callbackObjectDetections(const tuw_object_msgs::ObjectDetection &_msg)
 {
   using namespace mrpt::obs;
-  using namespace mrpt::maps;
-  using namespace mrpt::containers;
   using namespace mrpt::poses;
 
   if (param()->contour_filtering && !contour_.size())
@@ -117,111 +151,36 @@ void ObjectConverterNode::callbackObjectDetections(const tuw_object_msgs::Object
     return;
   }
 
-  CObservationBearingRange obs;
+  CObservationObject obs;
   obs.setSensorPose(map_pose_);
   obs.fieldOfView_pitch = M_PI/180.0 * 270.0;
 
   std::vector<cv::Point2f> vpb;
-  std::vector<bool> vbb;
 
   for (std::vector<tuw_object_msgs::ObjectWithCovariance>::const_iterator it = _msg.objects.begin();
        it != _msg.objects.end(); ++it)
   {
     if (it->object.shape == tuw_object_msgs::Object::SHAPE_DOOR)
     {
-      const auto o_id = it->object.ids[0];
-      auto position = it->object.pose.position;
-      auto orientation = it->object.pose.orientation;
-
-      CBearing::Ptr bear;
-
-      double door_angle = ((int) it->object.shape_variables[5] == 0) ? -it->object.shape_variables[3] : it->object.shape_variables[3];
-
-      CObservationBearingRange::TMeasurement d;
+      CObservationObject::TMeasurement meas;
+      if(convert(*it,meas))
       {
-        d.landmarkID = o_id;
-        double dx = position.x - map_pose_.x();
-        double dy = position.y - map_pose_.y();
-        d.yaw = atan2(dy,dx);
-        d.pitch = door_angle;
-        d.range = sqrt(dx*dx + dy*dy);
-
-        cv::Vec2f offset = cv::Vec2f(dx,dy) * scale_factor;
-        offset[0] *= param()->contour_offset;
-        offset[1] *= param()->contour_offset;
-        offset = -offset;
-
-        float dx_offset = dx * scale_factor + offset[0] + add_factor;
-        float dy_offset = dy * scale_factor + offset[1] + add_factor;
-
-        if (param()->contour_filtering)
-        {
-            cv::Point2f cv_d;
-            cv_d.x = dx_offset;
-            cv_d.y = dy_offset;
-            //vpb.push_back(cv_d);
-            //vbb.push_back(false);
-
-            if(cv::pointPolygonTest(contour_,cv_d,false) >= 0)
-            {
-                obs.sensedData.push_back(d);
-                //vbb.back() = true;
-            }
-        }
-        else
-        {
-            obs.sensedData.push_back(d);
-        }
+        obs.sensedData.push_back(meas);
       }
     }
-
-    //if (param()->contour_filtering)
-    //{
-    //  cv::Mat img_display = cv::Mat::zeros(1000,1000,CV_8UC3);
-    //  unsigned int incr = 0;
-    //  for (const cv::Point2f &p_b : vpb)
-    //  {
-    //    //img_display.at<cv::Scalar>(cv::Point2i(p_b)) = cv::Scalar(0,255,0);
-    //    cv::Scalar color;
-    //    if (vbb[incr])
-    //    {
-    //      color = cv::Scalar(0,255,0);
-    //    }
-    //    else
-    //    {
-    //      color = cv::Scalar(0,0,255);
-    //    }
-    //    cv::circle(img_display, p_b,3,color,1);
-    //    incr++;
-    //  }
-
-    //  for (std::vector<cv::Point2f>::iterator it = contour_.begin(); it != contour_.end(); ++it)
-    //  {
-    //    auto p_ls_0 = *it;
-    //    auto it_next = it+1;
-    //    if (it_next == contour_.end())
-    //    {
-    //      it_next = contour_.begin();
-    //    }
-    //    auto p_ls_1 = *(it_next);
-    //    cv::line(img_display, p_ls_0, p_ls_1, cv::Scalar(255,0,0),2);
-    //  }
-
-    //  cv::imshow("contour outline", img_display);
-    //  cv::waitKey(1);
-    //}
   }
 
   if (obs.sensedData.size() > 0)
   {
-        mrpt_msgs::ObservationRangeBearing obs_msg;
-        obs_msg.header.stamp = _msg.header.stamp;
-        obs_msg.header.frame_id = _msg.header.frame_id;
-        mrpt_bridge::convert(obs, obs_msg);
-        pub_bearings_.publish(obs_msg);
+    mrpt_msgs::ObservationObject obs_msg;
+    obs_msg.header.stamp = _msg.header.stamp;
+    obs_msg.header.frame_id = _msg.header.frame_id;
+    mrpt_bridge::convert(obs, obs_msg);
+    pub_bearings_.publish(obs_msg);
   }
 
   already_printed_ = true;
+  
 }
 
 bool ObjectConverterNode::getStaticTF(std::string source_frame, mrpt::poses::CPose3D &des)
@@ -232,38 +191,38 @@ bool ObjectConverterNode::getStaticTF(std::string source_frame, mrpt::poses::CPo
   mrpt::poses::CPose3D pose;
   tf::StampedTransform transform;
 
-  if (static_tf_.find(key) == static_tf_.end()) {
+  if (static_tf_.find(key) == static_tf_.end()) 
+  {
+    try
+    {
+      if (param()->debug)
+          ROS_INFO(
+              "debug: updateLaserPose(): target_frame_id='%s' source_frame_id='%s'",
+              target_frame_id.c_str(), source_frame_id.c_str());
 
-      try
-      {
-          if (param()->debug)
-              ROS_INFO(
-                  "debug: updateLaserPose(): target_frame_id='%s' source_frame_id='%s'",
-                  target_frame_id.c_str(), source_frame_id.c_str());
-
-          listenerTF_.lookupTransform(
-              target_frame_id, source_frame_id, ros::Time(0), transform);
-          tf::Vector3 translation = transform.getOrigin();
-          tf::Quaternion quat = transform.getRotation();
-          pose.x() = translation.x();
-          pose.y() = translation.y();
-          pose.z() = translation.z();
-          tf::Matrix3x3 Rsrc(quat);
-          mrpt::math::CMatrixDouble33 Rdes;
-          for (int c = 0; c < 3; c++)
-              for (int r = 0; r < 3; r++) Rdes(r, c) = Rsrc.getRow(r)[c];
-          pose.setRotationMatrix(Rdes);
-          static_tf_[key] = pose;
-          ROS_INFO("Static tf '%s' with '%s'",
-                   key.c_str(), pose.asString().c_str());
-      }
-      catch (tf::TransformException ex)
-      {
-          ROS_INFO("getStaticTF");
-          ROS_ERROR("%s", ex.what());
-          ros::Duration(1.0).sleep();
-          return false;
-      }
+      listenerTF_.lookupTransform(
+          target_frame_id, source_frame_id, ros::Time(0), transform);
+      tf::Vector3 translation = transform.getOrigin();
+      tf::Quaternion quat = transform.getRotation();
+      pose.x() = translation.x();
+      pose.y() = translation.y();
+      pose.z() = translation.z();
+      tf::Matrix3x3 Rsrc(quat);
+      mrpt::math::CMatrixDouble33 Rdes;
+      for (int c = 0; c < 3; c++)
+          for (int r = 0; r < 3; r++) Rdes(r, c) = Rsrc.getRow(r)[c];
+      pose.setRotationMatrix(Rdes);
+      static_tf_[key] = pose;
+      ROS_INFO("Static tf '%s' with '%s'",
+               key.c_str(), pose.asString().c_str());
+    }
+    catch (tf::TransformException ex)
+    {
+      ROS_INFO("getStaticTF");
+      ROS_ERROR("%s", ex.what());
+      ros::Duration(1.0).sleep();
+      return false;
+    }
   }
   des = static_tf_[key];
   return true;
