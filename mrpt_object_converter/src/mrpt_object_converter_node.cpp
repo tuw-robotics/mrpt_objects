@@ -7,8 +7,6 @@
 
 ObjectConverterNode::ParametersNode::ParametersNode() : nh("~")
 {
-    nh.param<std::string>(std::string("base_frame_id"), base_frame_id, "base_link");
-    nh.param<std::string>(std::string("source_frame_id"), source_frame_id, "r0/laser0");
     nh.param<std::string>(std::string("tf_prefix"), tf_prefix, "");
     nh.param<bool>("debug", debug, false);
     nh.param<std::string>(std::string("subscriber_topic_name"), subscriber_topic_name, std::string("map_doors"));
@@ -16,8 +14,9 @@ ObjectConverterNode::ParametersNode::ParametersNode() : nh("~")
     nh.param<float>(std::string("contour_offset"), contour_offset, 0.25);
     nh.param<bool>("contour_filtering", contour_filtering, false);
     nh.param<bool>("robot_perspective", robot_perspective, false);
+    nh.param<std::string>("world_frame", world_frame_name, std::string("map"));
+    nh.param<std::string>("source_frame", source_frame_name, std::string("r0/laser0"));
     ROS_INFO("tf_prefix: %s", tf_prefix.c_str());
-    ROS_INFO("base_frame_id: %s", base_frame_id.c_str());
     ROS_INFO("publisher topic name: %s", publisher_topic_name.c_str());
     ROS_INFO("subscribed to: %s", subscriber_topic_name.c_str());
 }
@@ -112,7 +111,15 @@ bool ObjectConverterNode::convert(const tuw_object_msgs::ObjectWithCovariance &_
   mrpt_bridge::convert(_obj.object.pose, p_so);
   _meas.pose_so = p_so;
   
-  MRPT_TODO("Pose in world frame");
+  if ( !getTF( param()->source_frame_name, map_pose_ ) )
+  {
+    double maxval = std::numeric_limits<double>::max();
+    _meas.pose_wo = mrpt::poses::CPose3D(maxval, maxval, maxval,0,0,0);
+  }
+  else 
+  {
+  	_meas.pose_wo = map_pose_ + p_so; 
+  }
   
   const auto shape_vars = _obj.object.shape_variables;
   _meas.shape_variables.resize(shape_vars.size());
@@ -152,7 +159,8 @@ void ObjectConverterNode::callbackObjectDetections(const tuw_object_msgs::Object
   }
 
   CObservationObject obs;
-  obs.setSensorPose(map_pose_);
+  MRPT_TODO("sensor pose assumed at 0, this is not true");
+  obs.setSensorPose(CPose3D(0,0,0,0,0,0));
   obs.fieldOfView_pitch = M_PI/180.0 * 270.0;
 
   std::vector<cv::Point2f> vpb;
@@ -176,6 +184,7 @@ void ObjectConverterNode::callbackObjectDetections(const tuw_object_msgs::Object
     obs_msg.header.stamp = _msg.header.stamp;
     obs_msg.header.frame_id = _msg.header.frame_id;
     mrpt_bridge::convert(obs, obs_msg);
+    std::cout << "publishing " << obs_msg.sensed_data.size() << " bearings " << std::endl;
     pub_bearings_.publish(obs_msg);
   }
 
@@ -183,50 +192,46 @@ void ObjectConverterNode::callbackObjectDetections(const tuw_object_msgs::Object
   
 }
 
-bool ObjectConverterNode::getStaticTF(std::string source_frame, mrpt::poses::CPose3D &des)
+bool ObjectConverterNode::getTF(std::string source_frame, mrpt::poses::CPose3D &des)
 {
-  std::string target_frame_id = tf::resolve(param()->tf_prefix, param()->base_frame_id);
+  std::string target_frame_id = tf::resolve(param()->tf_prefix, param()->world_frame_name);
   std::string source_frame_id = source_frame;
   std::string key = target_frame_id + "->" + source_frame_id;
   mrpt::poses::CPose3D pose;
   tf::StampedTransform transform;
 
-  if (static_tf_.find(key) == static_tf_.end()) 
+  try
   {
-    try
-    {
-      if (param()->debug)
-          ROS_INFO(
-              "debug: updateLaserPose(): target_frame_id='%s' source_frame_id='%s'",
-              target_frame_id.c_str(), source_frame_id.c_str());
+    if (param()->debug)
+        ROS_INFO(
+            "debug: updateLaserPose(): target_frame_id='%s' source_frame_id='%s'",
+            target_frame_id.c_str(), source_frame_id.c_str());
 
-      listenerTF_.lookupTransform(
-          target_frame_id, source_frame_id, ros::Time(0), transform);
-      tf::Vector3 translation = transform.getOrigin();
-      tf::Quaternion quat = transform.getRotation();
-      pose.x() = translation.x();
-      pose.y() = translation.y();
-      pose.z() = translation.z();
-      tf::Matrix3x3 Rsrc(quat);
-      mrpt::math::CMatrixDouble33 Rdes;
-      for (int c = 0; c < 3; c++)
-          for (int r = 0; r < 3; r++) Rdes(r, c) = Rsrc.getRow(r)[c];
-      pose.setRotationMatrix(Rdes);
-      static_tf_[key] = pose;
-      ROS_INFO("Static tf '%s' with '%s'",
-               key.c_str(), pose.asString().c_str());
-    }
-    catch (tf::TransformException ex)
-    {
-      ROS_INFO("getStaticTF");
-      ROS_ERROR("%s", ex.what());
-      ros::Duration(1.0).sleep();
-      return false;
-    }
+    listenerTF_.lookupTransform(
+        target_frame_id, source_frame_id, ros::Time(0), transform);
+    tf::Vector3 translation = transform.getOrigin();
+    tf::Quaternion quat = transform.getRotation();
+    pose.x() = translation.x();
+    pose.y() = translation.y();
+    pose.z() = translation.z();
+    tf::Matrix3x3 Rsrc(quat);
+    mrpt::math::CMatrixDouble33 Rdes;
+    for (int c = 0; c < 3; c++)
+        for (int r = 0; r < 3; r++) Rdes(r, c) = Rsrc.getRow(r)[c];
+    pose.setRotationMatrix(Rdes);
+    static_tf_[key] = pose;
+    //ROS_INFO("Static tf '%s' with '%s'",
+    //         key.c_str(), pose.asString().c_str());
   }
-  des = static_tf_[key];
+  catch (tf::TransformException ex)
+  {
+    ROS_INFO("getStaticTF");
+    ROS_ERROR("%s", ex.what());
+    ros::Duration(1.0).sleep();
+    return false;
+  }
+  
   return true;
-
 }
 
 int main(int argc, char **argv)

@@ -28,8 +28,8 @@ public:
       bool robot_perspective;
       float contour_offset;
       std::string tf_prefix;
-      std::string base_frame_id;
-      std::string source_frame_id;
+      std::string world_frame_name;
+      std::string source_frame_name;
       std::string publisher_topic_name;
       std::string subscriber_topic_name;
   };
@@ -41,7 +41,7 @@ public:
   void init();
   void callbackObjectDetections(const tuw_object_msgs::ObjectDetection &_msg);
   void callbackScan(const sensor_msgs::LaserScan &_laser_msg);
-  bool getStaticTF(std::string source_frame, mrpt::poses::CPose3D &des);
+  bool getTF(std::string source_frame, mrpt::poses::CPose3D &des);
 
 private:
   int x_range;
