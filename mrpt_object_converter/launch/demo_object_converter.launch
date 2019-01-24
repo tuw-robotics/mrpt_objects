@@ -1,9 +1,36 @@
 <launch>
 
-  <node pkg="mrpt_object_converter" type="mrpt_object_converter_node" name="mrpt_object_converter_node" output="screen">
-    <param name="base_frame_id" value="map"/>
-    <param name="frame_id" value="map"/>
-    <param name="debug" type="bool" value="true"/>
-  </node>
+    <!-- publisher topic name for CObservationObjects, rawlog record listens to these objects and creates a rawlog file -->
+    <arg name="bearing_topic_name" default="/bearings"/>
+    <!-- tuw_msgs::ObjectDetection gets converted to mrpt_msgs::CObservationObject -->
+    <arg name="object_detections_topic_name" default="/map_doors"/>
+    <!-- used for door simulation in a test scenario -->
+    <arg name="contour_filtering" default="false"/>
+    <!-- threshold for door simulation filtering based on the laser range contour -->
+    <arg name="contour_offset" default="0.5"/>
+    <!-- prints more information on the screen, slow don't use in a live setting -->
+    <arg name="debug_mode" default="false"/>
+    <!-- robots name for laser scan topic -->
+    <arg name="robot_name" default="r0"/>
+
+    <arg name="world_frame" default="map"/>
+    <arg name="target_frame" default="$(arg robot_name)/laser0"/>
+    <arg name="scan" default="$(arg robot_name)/laser0/scan/raw"/>
+
+    <node pkg="mrpt_object_converter" type="mrpt_object_converter_node" name="mrpt_object_converter_node"
+          output="screen">
+
+        <param name="frame_id"
+               value="$(arg robot_name)/laser0"/> <!-- assume that the bearings are stored in robot space (as seen from robot) -->
+        <param name="publisher_topic_name" value="$(arg bearing_topic_name)"/>
+        <param name="subscriber_topic_name" value="$(arg object_detections_topic_name)"/>
+        <param name="debug" type="bool" value="$(arg debug_mode)"/>
+        <param name="contour_filtering" value="$(arg contour_filtering)"/>
+        <param name="contour_offset" value="$(arg contour_offset)"/>
+        <param name="world_frame" value="$(arg world_frame)"/>
+        <param name="target_frame" value="$(arg target_frame)"/>
+        <remap from="scan" to="$(arg robot_name)/laser0/scan/raw"/>
+
+    </node>
 
 </launch>
